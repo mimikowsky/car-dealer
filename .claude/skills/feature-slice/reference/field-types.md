@@ -9,7 +9,7 @@ layer (SQL, entity, request, response, mapper, TS interface, form model, form in
 | Optional short text | `VARCHAR(n)` | `String`, `@Column(length = n)` | `@Size(max = n)` (+ `@Pattern` if format) | `string \| null` | `string`, `<input type="text">`, `toRequest`: `model.x \|\| null` | `value ?? '—'` |
 | Formatted code (VIN, NIP, postal code) | `VARCHAR(n)` exact length | `String` | `@Pattern(regexp = "...", message = "must be ...")` (+ `@NotBlank` if required) | `string` | `<input type="text">` | value |
 | Email | `VARCHAR(255) NOT NULL` | `String` | `@NotBlank @Email @Size(max = 255)` | `string` | `<input type="email">` | value |
-| Phone | `VARCHAR(20) NOT NULL` | `String` | `@NotBlank @Pattern(regexp = "\\+?[0-9 -]{6,20}", message = "must contain 6 to 20 digits, spaces or dashes, optionally starting with +") @Size(max = 20)` | `string` | `<input type="tel">` | value |
+| Phone | `VARCHAR(20) NOT NULL` | `String` | `@NotBlank @Size(max = 20)`; add `@Pattern` only for what the source states, e.g. "digits, spaces, +, -" → `@Pattern(regexp = "[0-9 +-]*", message = "may contain only digits, spaces, + and -")`. No source → no pattern (assumption) | `string` | `<input type="tel">` | value |
 | Long text | `VARCHAR(1000)` | `String`, `length = 1000` | `@Size(max = 1000)` | `string \| null` | `<textarea>` | value |
 | Integer | `INTEGER NOT NULL` | `Integer` | `@NotNull` + `@Min/@Max/@Positive` | `number` | `number \| null`, `<input type="number">`, `toRequest`: `model.x!` | value |
 | Decimal / money | `NUMERIC(12, 2) NOT NULL` | `BigDecimal`, `@Column(nullable = false, precision = 12, scale = 2)` | `@NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)` | `number` | `number \| null`, `<input type="number" step="0.01">` | value |
@@ -20,6 +20,9 @@ layer (SQL, entity, request, response, mapper, TS interface, form model, form in
 
 ## Notes
 
+- The table gives defaults for when no source (contract, `INTENT.md`, description) says anything.
+  A rule from a source replaces the default literally: never combine them or add extra
+  restrictions (minimum lengths, character positions) the source doesn't state.
 - Default lengths when the description gives none: names 50 (person names 100), codes = exact
   length, email 255, phone 20, free text 1000.
 - Required strings use `@NotBlank`; never `@NotNull` alone for strings. Message comes from Bean
@@ -33,8 +36,12 @@ layer (SQL, entity, request, response, mapper, TS interface, form model, form in
   depends on other data (then it is a 409, not a 400).
 - Uniqueness:
   - case-sensitive (codes, VIN): `existsByX(String)`, `existsByXAndIdNot(String, Long)`;
-  - case-insensitive (email, usernames): `existsByXIgnoreCase(String)`,
-    `existsByXIgnoreCaseAndIdNot(String, Long)`; store the value as entered.
+  - case-insensitive (email, usernames): normalize **exactly once, in the Request record's compact
+    constructor** (`email = email == null ? null : email.trim().toLowerCase(Locale.ROOT);`).
+    Everything downstream sees the normalized value: the repository uses plain `existsByX` /
+    `existsByXAndIdNot`, and the service uses `request.x()` both for the check and the 409 message.
+    The mapper and the service never normalize; no `IgnoreCase` queries. The DB `uq_` constraint
+    then enforces uniqueness for real.
   - Always also add `CONSTRAINT uq_{table}_{column} UNIQUE ({column})` in SQL.
   - Optional unique fields: only check when the value is not `null`.
 - Column naming: snake_case of the field (`plannedHandoverDate` → `planned_handover_date`), aligned

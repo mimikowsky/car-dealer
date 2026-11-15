@@ -142,3 +142,6 @@ Append short, concrete entries here when something goes wrong or a non-obvious f
   can't run them directly.
 - The brief and transcript contradict each other in places (e.g. re-verifying rejected documents):
   the API contract and the latest client decision win; record the choice in `INTENT.md`.
+- Skill defaults must never override `INTENT.md`. First `feature-slice` run on customers invented a
+  stricter phone regex than Z13 and spread email normalization over mapper and service; every rule
+  must trace to its source, and normalization lives in one place (the Request record).

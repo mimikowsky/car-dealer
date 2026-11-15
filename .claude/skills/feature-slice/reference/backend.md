@@ -107,6 +107,23 @@ public record {Entity}Request(
 
 One annotation per line, a blank line between components (see `VehicleRequest`).
 
+*(if a unique field is case-insensitive, e.g. email)* the Request is the **only** place that
+normalizes it, via a compact constructor; mapper, service and repository just use the value:
+
+```java
+public record {Entity}Request(
+        @NotBlank
+        @Email
+        @Size(max = 255)
+        String email
+) {
+
+    public {Entity}Request {
+        email = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+    }
+}
+```
+
 ```java
 public record {Entity}Response(
         Long id,
@@ -149,7 +166,7 @@ public final class {Entity}Mapper {
 ```java
 public interface {Entity}Repository extends JpaRepository<{Entity}, Long> {
 
-    boolean existsBy{Key}(String {key});                 // (if unique) IgnoreCase variant for emails
+    boolean existsBy{Key}(String {key});                 // (if unique) plain query, also for emails
 
     boolean existsBy{Key}AndIdNot(String {key}, Long id);
 }
@@ -264,10 +281,12 @@ required field). Errors are sorted by field name, then message — assert in tha
 `updateThrowsNotFoundWhen{Entity}DoesNotExist`, `deleteRemovesExisting{Entity}`,
 `deleteThrowsNotFoundWhen{Entity}DoesNotExist`. Helpers `{entity}(key)` and `request(key)`,
 constants `KEY` / `OTHER_KEY`. Optional unique field: add a test that `null` skips the check.
+Normalized field: `createStoresNormalized{Key}` (request with e.g. ` Jan.Kowalski@Example.COM `,
+assert the repository check, the saved entity and the 409 message all use the lowercase trimmed value).
 Custom business rules: one test per rule and per boundary.
 
 ### `{Entity}RepositoryTest` — `@DataJpaTest`, `TestEntityManager`
 
 Use key values that differ from the seed data. `existsBy{Key}AndIdNotFinds{Key}OfAnother{Entity}`
-(two saved rows, true/false/unknown key; for IgnoreCase also check different case) and
+(two saved rows, true/false/unknown key) and
 `saveStores{Entity}ThatCanBeReadBack` (flush, clear, `findById`, `isNotSameAs`, every field).

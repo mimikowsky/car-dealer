@@ -17,8 +17,12 @@ distilled from it; when a template and the real vehicle code disagree, the vehic
 
 The user gives an entity name and fields, usually informally ("Customer: first name, last name,
 email unique, phone, optional NIP for companies"). It may also give business rules, an API
-contract, or point to `INTENT.md` / `BRIEF.md`. Read those if they mention the entity: a fixed API
-contract (paths, enum names, status codes) always wins over this skill's defaults.
+contract, or point to `INTENT.md` / `BRIEF.md`. Read those if they mention the entity.
+
+Precedence of sources: fixed API contract (paths, enum names, status codes) > `INTENT.md`
+(requirements and assumptions) > the user's description > this skill's defaults. Defaults in the
+reference files only fill gaps; they never override, tighten or extend a rule stated in a higher
+source.
 
 Do not stop to ask questions. Where the description is ambiguous, choose the most conservative
 option consistent with the vehicle module, write it down as an assumption, and continue.
@@ -47,8 +51,13 @@ For an entity nested under another resource also read
 
 Produce this table in your reply and keep it as the single source for every layer:
 
-| field (camelCase) | label | Java type | SQL column | required | constraints | unique | TS type | form input |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| field (camelCase) | label | Java type | SQL column | required | constraints | source | unique | TS type | form input |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+Every constraint (and every normalization) has a source: `contract`, `INTENT Zn`, `description`
+or `default`. Copy rules from the contract/INTENT/description literally: do not add minimum lengths,
+positions of characters or other restrictions they don't state. Every `default` constraint is
+listed as an assumption.
 
 Plus the naming block:
 
@@ -130,6 +139,8 @@ Run `cd frontend && npm test` and `npm run build` (template type-check), then
 - [ ] Migration numbers continue the sequence; schema and seed in separate files; seed passes validation
 - [ ] Entity columns, lengths, nullability and enums match the SQL exactly (`ddl-auto=validate`)
 - [ ] Request has validation for every field; optional fields have no `@NotNull/@NotBlank`
+- [ ] Every validation annotation and normalization traces to a row of the field spec and its source; nothing stricter than the source
+- [ ] Case-insensitive unique fields are normalized only in the Request compact constructor; no normalization in mapper/service, no `IgnoreCase` queries
 - [ ] Service: `readOnly` class transaction, `@Transactional` writes, `Sort.by("id")`, `get{Entity}` helper, 409 for each unique field on create and update
 - [ ] Controller: 201 + Location on POST, 200 on PUT, 204 on DELETE
 - [ ] Controller test covers every item of the test checklist; service test covers every branch; repository test covers every custom query
