@@ -1,0 +1,1448 @@
+warning: in the working copy of 'frontend/src/app/app.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/app/app.routes.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/frontend/angular.json b/frontend/angular.json
+index ef04f9b..4354800 100644
+--- a/frontend/angular.json
++++ b/frontend/angular.json
+@@ -2,7 +2,8 @@
+   "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+   "version": 1,
+   "cli": {
+-    "packageManager": "npm"
++    "packageManager": "npm",
++    "analytics": false
+   },
+   "newProjectRoot": "projects",
+   "projects": {
+diff --git a/frontend/src/app/app.html b/frontend/src/app/app.html
+index 40b734f..672d1b4 100644
+--- a/frontend/src/app/app.html
++++ b/frontend/src/app/app.html
+@@ -1,6 +1,7 @@
+ <header>
+   <nav>
+     <a routerLink="/vehicles" routerLinkActive="active">Vehicles</a>
++    <a routerLink="/customers" routerLinkActive="active">Customers</a>
+   </nav>
+ </header>
+ 
+diff --git a/frontend/src/app/app.routes.ts b/frontend/src/app/app.routes.ts
+index 41f1f47..d67a4d9 100644
+--- a/frontend/src/app/app.routes.ts
++++ b/frontend/src/app/app.routes.ts
+@@ -6,4 +6,8 @@ export const routes: Routes = [
+     path: 'vehicles',
+     loadChildren: () => import('./vehicles/vehicles.routes').then((m) => m.vehiclesRoutes),
+   },
++  {
++    path: 'customers',
++    loadChildren: () => import('./customers/customers.routes').then((m) => m.customersRoutes),
++  },
+ ];
+===== backend/src/main/java/com/example/dealership/customer/Customer.java
+package com.example.dealership.customer;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "customer")
+public class Customer {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 100)
+    private String firstName;
+
+    @Column(nullable = false, length = 100)
+    private String lastName;
+
+    @Column(nullable = false, length = 255)
+    private String email;
+
+    @Column(nullable = false, length = 20)
+    private String phone;
+
+    @Column(length = 10)
+    private String nip;
+
+    protected Customer() {
+    }
+
+    public Customer(String firstName, String lastName, String email, String phone, String nip) {
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.email = email;
+        this.phone = phone;
+        this.nip = nip;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public void setLastName(String lastName) {
+        this.lastName = lastName;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getNip() {
+        return nip;
+    }
+
+    public void setNip(String nip) {
+        this.nip = nip;
+    }
+}
+===== backend/src/main/java/com/example/dealership/customer/CustomerController.java
+package com.example.dealership.customer;
+
+import java.net.URI;
+import java.util.List;
+
+import jakarta.validation.Valid;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+@RestController
+@RequestMapping("/api/customers")
+public class CustomerController {
+
+    private final CustomerService customerService;
+
+    public CustomerController(CustomerService customerService) {
+        this.customerService = customerService;
+    }
+
+    @GetMapping
+    public List<CustomerResponse> findAll() {
+        return customerService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public CustomerResponse findById(@PathVariable Long id) {
+        return customerService.findById(id);
+    }
+
+    @PostMapping
+    public ResponseEntity<CustomerResponse> create(@Valid @RequestBody CustomerRequest request) {
+        CustomerResponse response = customerService.create(request);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(response.id())
+                .toUri();
+        return ResponseEntity.created(location).body(response);
+    }
+
+    @PutMapping("/{id}")
+    public CustomerResponse update(@PathVariable Long id, @Valid @RequestBody CustomerRequest request) {
+        return customerService.update(id, request);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        customerService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+===== backend/src/main/java/com/example/dealership/customer/CustomerMapper.java
+package com.example.dealership.customer;
+
+import java.util.Locale;
+
+public final class CustomerMapper {
+
+    private CustomerMapper() {
+    }
+
+    public static Customer toEntity(CustomerRequest request) {
+        return new Customer(
+                request.firstName(),
+                request.lastName(),
+                normalizeEmail(request.email()),
+                request.phone(),
+                request.nip());
+    }
+
+    public static void updateEntity(Customer customer, CustomerRequest request) {
+        customer.setFirstName(request.firstName());
+        customer.setLastName(request.lastName());
+        customer.setEmail(normalizeEmail(request.email()));
+        customer.setPhone(request.phone());
+        customer.setNip(request.nip());
+    }
+
+    public static CustomerResponse toResponse(Customer customer) {
+        return new CustomerResponse(
+                customer.getId(),
+                customer.getFirstName(),
+                customer.getLastName(),
+                customer.getEmail(),
+                customer.getPhone(),
+                customer.getNip());
+    }
+
+    static String normalizeEmail(String email) {
+        return email.toLowerCase(Locale.ROOT);
+    }
+}
+===== backend/src/main/java/com/example/dealership/customer/CustomerRepository.java
+package com.example.dealership.customer;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface CustomerRepository extends JpaRepository<Customer, Long> {
+
+    boolean existsByEmailIgnoreCase(String email);
+
+    boolean existsByEmailIgnoreCaseAndIdNot(String email, Long id);
+}
+===== backend/src/main/java/com/example/dealership/customer/CustomerRequest.java
+package com.example.dealership.customer;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+public record CustomerRequest(
+        @NotBlank
+        @Size(max = 100)
+        String firstName,
+
+        @NotBlank
+        @Size(max = 100)
+        String lastName,
+
+        @NotBlank
+        @Email
+        @Size(max = 255)
+        String email,
+
+        @NotBlank
+        @Size(max = 20)
+        @Pattern(regexp = "\\+?[0-9 -]{6,20}", message = "must contain 6 to 20 digits, spaces or dashes, optionally starting with +")
+        String phone,
+
+        @Size(max = 10)
+        @Pattern(regexp = "[0-9]{10}", message = "must be exactly 10 digits")
+        String nip
+) {
+}
+===== backend/src/main/java/com/example/dealership/customer/CustomerResponse.java
+package com.example.dealership.customer;
+
+public record CustomerResponse(
+        Long id,
+        String firstName,
+        String lastName,
+        String email,
+        String phone,
+        String nip
+) {
+}
+===== backend/src/main/java/com/example/dealership/customer/CustomerService.java
+package com.example.dealership.customer;
+
+import java.util.List;
+
+import com.example.dealership.error.ConflictException;
+import com.example.dealership.error.NotFoundException;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class CustomerService {
+
+    private final CustomerRepository customerRepository;
+
+    public CustomerService(CustomerRepository customerRepository) {
+        this.customerRepository = customerRepository;
+    }
+
+    public List<CustomerResponse> findAll() {
+        return customerRepository.findAll(Sort.by("id")).stream()
+                .map(CustomerMapper::toResponse)
+                .toList();
+    }
+
+    public CustomerResponse findById(Long id) {
+        return CustomerMapper.toResponse(getCustomer(id));
+    }
+
+    @Transactional
+    public CustomerResponse create(CustomerRequest request) {
+        if (customerRepository.existsByEmailIgnoreCase(request.email())) {
+            throw emailAlreadyExists(request.email());
+        }
+        Customer customer = customerRepository.save(CustomerMapper.toEntity(request));
+        return CustomerMapper.toResponse(customer);
+    }
+
+    @Transactional
+    public CustomerResponse update(Long id, CustomerRequest request) {
+        Customer customer = getCustomer(id);
+        if (customerRepository.existsByEmailIgnoreCaseAndIdNot(request.email(), id)) {
+            throw emailAlreadyExists(request.email());
+        }
+        CustomerMapper.updateEntity(customer, request);
+        return CustomerMapper.toResponse(customerRepository.save(customer));
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        customerRepository.delete(getCustomer(id));
+    }
+
+    private Customer getCustomer(Long id) {
+        return customerRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Customer with id " + id + " not found"));
+    }
+
+    private static ConflictException emailAlreadyExists(String email) {
+        return new ConflictException(
+                "Customer with email " + CustomerMapper.normalizeEmail(email) + " already exists");
+    }
+}
+===== backend/src/main/resources/db/migration/V4__customer.sql
+CREATE TABLE customer (
+    id         BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    first_name VARCHAR(100) NOT NULL,
+    last_name  VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL,
+    phone      VARCHAR(20)  NOT NULL,
+    nip        VARCHAR(10),
+    CONSTRAINT uq_customer_email UNIQUE (email)
+);
+===== backend/src/main/resources/db/migration/V5__customer_seed.sql
+INSERT INTO customer (first_name, last_name, email, phone, nip) VALUES
+    ('Jan', 'Kowalski', 'jan.kowalski@example.com', '+48 601 234 567', NULL),
+    ('Anna', 'Nowak', 'anna.nowak@example.com', '512-345-678', NULL),
+    ('Piotr', 'Wiśniewski', 'biuro@wisniewski-transport.example.com', '+48 22 123 45 67', '5260250995');
+===== backend/src/test/java/com/example/dealership/customer/CustomerControllerTest.java
+package com.example.dealership.customer;
+
+import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.List;
+
+import com.example.dealership.error.ConflictException;
+import com.example.dealership.error.NotFoundException;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+@WebMvcTest(CustomerController.class)
+class CustomerControllerTest {
+
+    private static final String EMAIL = "jan.kowalski@example.com";
+    private static final String VALID_BODY = """
+            {
+              "firstName": "Jan",
+              "lastName": "Kowalski",
+              "email": "jan.kowalski@example.com",
+              "phone": "+48 601 234 567",
+              "nip": "5260250995"
+            }
+            """;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private CustomerService customerService;
+
+    @Test
+    void findAllReturnsCustomers() throws Exception {
+        when(customerService.findAll()).thenReturn(List.of(response()));
+
+        mockMvc.perform(get("/api/customers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].email").value(EMAIL))
+                .andExpect(jsonPath("$[0].phone").value("+48 601 234 567"))
+                .andExpect(jsonPath("$[0].nip").value("5260250995"));
+    }
+
+    @Test
+    void findByIdReturnsCustomer() throws Exception {
+        when(customerService.findById(1L)).thenReturn(response());
+
+        mockMvc.perform(get("/api/customers/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL));
+    }
+
+    @Test
+    void findByIdReturnsNotFoundProblemWhenCustomerDoesNotExist() throws Exception {
+        when(customerService.findById(99L)).thenThrow(new NotFoundException("Customer with id 99 not found"));
+
+        mockMvc.perform(get("/api/customers/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Customer with id 99 not found"));
+    }
+
+    @Test
+    void createReturnsCreatedCustomer() throws Exception {
+        when(customerService.create(any(CustomerRequest.class))).thenReturn(response());
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "http://localhost/api/customers/1"))
+                .andExpect(jsonPath("$.id").value(1));
+    }
+
+    @Test
+    void createAcceptsCustomerWithoutNip() throws Exception {
+        String body = VALID_BODY.replace("\"5260250995\"", "null");
+        when(customerService.create(any(CustomerRequest.class))).thenReturn(response());
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void createReturnsBadRequestProblemWithFieldErrorsWhenRequestIsInvalid() throws Exception {
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(invalidBody()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Validation failed"))
+                .andExpect(jsonPath("$.errors.length()").value(4))
+                .andExpect(jsonPath("$.errors[0].field").value("email"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a well-formed email address"))
+                .andExpect(jsonPath("$.errors[1].field").value("lastName"))
+                .andExpect(jsonPath("$.errors[1].message").value("must not be blank"))
+                .andExpect(jsonPath("$.errors[2].field").value("nip"))
+                .andExpect(jsonPath("$.errors[2].message").value("must be exactly 10 digits"))
+                .andExpect(jsonPath("$.errors[3].field").value("phone"))
+                .andExpect(jsonPath("$.errors[3].message")
+                        .value("must contain 6 to 20 digits, spaces or dashes, optionally starting with +"));
+        verifyNoInteractions(customerService);
+    }
+
+    @Test
+    void createReturnsEnglishValidationMessagesWhenAcceptLanguageIsPolish() throws Exception {
+        String body = VALID_BODY.replace("Kowalski\"", " \"");
+
+        mockMvc.perform(post("/api/customers")
+                        .header(HttpHeaders.ACCEPT_LANGUAGE, "pl")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("lastName"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be blank"));
+        verifyNoInteractions(customerService);
+    }
+
+    @Test
+    void createReturnsBadRequestProblemWithFieldErrorWhenValueHasWrongType() throws Exception {
+        String body = VALID_BODY.replace("\"Jan\"", "{}");
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("firstName"))
+                .andExpect(jsonPath("$.errors[0].message").value("has an invalid value"));
+        verifyNoInteractions(customerService);
+    }
+
+    @Test
+    void createReturnsBadRequestProblemWhenBodyIsNotJson() throws Exception {
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content("{ not json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Validation failed"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value(nullValue()))
+                .andExpect(jsonPath("$.errors[0].message").value("request body must be valid JSON"));
+        verifyNoInteractions(customerService);
+    }
+
+    @Test
+    void createReturnsConflictProblemWhenEmailAlreadyExists() throws Exception {
+        when(customerService.create(any(CustomerRequest.class)))
+                .thenThrow(new ConflictException("Customer with email " + EMAIL + " already exists"));
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("Customer with email " + EMAIL + " already exists"));
+    }
+
+    @Test
+    void createReturnsConflictProblemWhenDatabaseConstraintIsViolated() throws Exception {
+        when(customerService.create(any(CustomerRequest.class)))
+                .thenThrow(new DataIntegrityViolationException("uq_customer_email"));
+
+        mockMvc.perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("Request conflicts with existing data"));
+    }
+
+    @Test
+    void updateReturnsUpdatedCustomer() throws Exception {
+        when(customerService.update(eq(1L), any(CustomerRequest.class))).thenReturn(response());
+
+        mockMvc.perform(put("/api/customers/1").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL));
+    }
+
+    @Test
+    void updateReturnsNotFoundProblemWhenCustomerDoesNotExist() throws Exception {
+        when(customerService.update(eq(99L), any(CustomerRequest.class)))
+                .thenThrow(new NotFoundException("Customer with id 99 not found"));
+
+        mockMvc.perform(put("/api/customers/99").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Customer with id 99 not found"));
+    }
+
+    @Test
+    void updateReturnsBadRequestProblemWithFieldErrorsWhenRequestIsInvalid() throws Exception {
+        mockMvc.perform(put("/api/customers/1").contentType(MediaType.APPLICATION_JSON).content(invalidBody()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Validation failed"))
+                .andExpect(jsonPath("$.errors.length()").value(4))
+                .andExpect(jsonPath("$.errors[0].field").value("email"))
+                .andExpect(jsonPath("$.errors[1].field").value("lastName"))
+                .andExpect(jsonPath("$.errors[2].field").value("nip"))
+                .andExpect(jsonPath("$.errors[3].field").value("phone"));
+        verifyNoInteractions(customerService);
+    }
+
+    @Test
+    void updateReturnsConflictProblemWhenEmailAlreadyExists() throws Exception {
+        when(customerService.update(eq(1L), any(CustomerRequest.class)))
+                .thenThrow(new ConflictException("Customer with email " + EMAIL + " already exists"));
+
+        mockMvc.perform(put("/api/customers/1").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("Customer with email " + EMAIL + " already exists"));
+    }
+
+    @Test
+    void deleteReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/api/customers/1"))
+                .andExpect(status().isNoContent());
+
+        verify(customerService).delete(1L);
+    }
+
+    @Test
+    void deleteReturnsNotFoundProblemWhenCustomerDoesNotExist() throws Exception {
+        doThrow(new NotFoundException("Customer with id 99 not found")).when(customerService).delete(99L);
+
+        mockMvc.perform(delete("/api/customers/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Customer with id 99 not found"));
+    }
+
+    private static String invalidBody() {
+        return """
+                {
+                  "firstName": "Jan",
+                  "lastName": "",
+                  "email": "not-an-email",
+                  "phone": "phone",
+                  "nip": "123"
+                }
+                """;
+    }
+
+    private static CustomerResponse response() {
+        return new CustomerResponse(1L, "Jan", "Kowalski", EMAIL, "+48 601 234 567", "5260250995");
+    }
+}
+===== backend/src/test/java/com/example/dealership/customer/CustomerRepositoryTest.java
+package com.example.dealership.customer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+
+@DataJpaTest
+class CustomerRepositoryTest {
+
+    private static final String EMAIL = "ewa.zielinska@example.com";
+    private static final String OTHER_EMAIL = "marek.lewandowski@example.com";
+
+    @Autowired
+    private CustomerRepository customerRepository;
+
+    @Autowired
+    private TestEntityManager entityManager;
+
+    @Test
+    void existsByEmailIgnoreCaseAndIdNotFindsEmailOfAnotherCustomer() {
+        Customer first = customerRepository.save(
+                new Customer("Ewa", "Zielińska", EMAIL, "600 100 200", null));
+        Customer second = customerRepository.save(
+                new Customer("Marek", "Lewandowski", OTHER_EMAIL, "600 100 300", "1234567890"));
+        entityManager.flush();
+
+        assertThat(customerRepository.existsByEmailIgnoreCaseAndIdNot(EMAIL, second.getId())).isTrue();
+        assertThat(customerRepository.existsByEmailIgnoreCaseAndIdNot("Ewa.Zielinska@EXAMPLE.com", second.getId()))
+                .isTrue();
+        assertThat(customerRepository.existsByEmailIgnoreCaseAndIdNot(EMAIL, first.getId())).isFalse();
+        assertThat(customerRepository.existsByEmailIgnoreCase("EWA.ZIELINSKA@example.com")).isTrue();
+        assertThat(customerRepository.existsByEmailIgnoreCase("nobody@example.com")).isFalse();
+    }
+
+    @Test
+    void saveStoresCustomerThatCanBeReadBack() {
+        Customer saved = customerRepository.save(
+                new Customer("Ewa", "Zielińska", EMAIL, "+48 600 100 200", "1234567890"));
+        entityManager.flush();
+        entityManager.clear();
+
+        Customer found = customerRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found).isNotSameAs(saved);
+        assertThat(found.getFirstName()).isEqualTo("Ewa");
+        assertThat(found.getLastName()).isEqualTo("Zielińska");
+        assertThat(found.getEmail()).isEqualTo(EMAIL);
+        assertThat(found.getPhone()).isEqualTo("+48 600 100 200");
+        assertThat(found.getNip()).isEqualTo("1234567890");
+        assertThat(customerRepository.existsByEmailIgnoreCase(EMAIL)).isTrue();
+        assertThat(customerRepository.existsByEmailIgnoreCaseAndIdNot(EMAIL, saved.getId())).isFalse();
+    }
+}
+===== backend/src/test/java/com/example/dealership/customer/CustomerServiceTest.java
+package com.example.dealership.customer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import java.util.Optional;
+
+import com.example.dealership.error.ConflictException;
+import com.example.dealership.error.NotFoundException;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Sort;
+
+@ExtendWith(MockitoExtension.class)
+class CustomerServiceTest {
+
+    private static final String EMAIL = "jan.kowalski@example.com";
+    private static final String OTHER_EMAIL = "anna.nowak@example.com";
+
+    @Mock
+    private CustomerRepository customerRepository;
+
+    @InjectMocks
+    private CustomerService customerService;
+
+    @Test
+    void findAllReturnsMappedCustomers() {
+        when(customerRepository.findAll(Sort.by("id"))).thenReturn(List.of(customer(EMAIL), customer(OTHER_EMAIL)));
+
+        List<CustomerResponse> responses = customerService.findAll();
+
+        assertThat(responses).extracting(CustomerResponse::email).containsExactly(EMAIL, OTHER_EMAIL);
+    }
+
+    @Test
+    void findByIdThrowsNotFoundWhenCustomerDoesNotExist() {
+        when(customerRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> customerService.findById(99L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Customer with id 99 not found");
+    }
+
+    @Test
+    void createSavesCustomer() {
+        when(customerRepository.existsByEmailIgnoreCase(EMAIL)).thenReturn(false);
+        when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CustomerResponse response = customerService.create(request(EMAIL));
+
+        assertThat(response.firstName()).isEqualTo("Jan");
+        assertThat(response.lastName()).isEqualTo("Kowalski");
+        assertThat(response.email()).isEqualTo(EMAIL);
+        assertThat(response.phone()).isEqualTo("+48 601 234 567");
+        assertThat(response.nip()).isEqualTo("5260250995");
+    }
+
+    @Test
+    void createSavesCustomerWithoutNip() {
+        when(customerRepository.existsByEmailIgnoreCase(EMAIL)).thenReturn(false);
+        when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CustomerResponse response = customerService.create(
+                new CustomerRequest("Jan", "Kowalski", EMAIL, "+48 601 234 567", null));
+
+        assertThat(response.nip()).isNull();
+    }
+
+    @Test
+    void createStoresEmailInLowerCase() {
+        when(customerRepository.existsByEmailIgnoreCase("Jan.Kowalski@Example.COM")).thenReturn(false);
+        when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CustomerResponse response = customerService.create(request("Jan.Kowalski@Example.COM"));
+
+        assertThat(response.email()).isEqualTo(EMAIL);
+    }
+
+    @Test
+    void createThrowsConflictWhenEmailAlreadyExists() {
+        when(customerRepository.existsByEmailIgnoreCase(EMAIL)).thenReturn(true);
+
+        assertThatThrownBy(() -> customerService.create(request(EMAIL)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Customer with email " + EMAIL + " already exists");
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void createThrowsConflictWithNormalizedEmailWhenEmailDiffersOnlyInCase() {
+        when(customerRepository.existsByEmailIgnoreCase("JAN.KOWALSKI@EXAMPLE.COM")).thenReturn(true);
+
+        assertThatThrownBy(() -> customerService.create(request("JAN.KOWALSKI@EXAMPLE.COM")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Customer with email " + EMAIL + " already exists");
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void updateChangesExistingCustomer() {
+        Customer customer = customer(EMAIL);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.existsByEmailIgnoreCaseAndIdNot(OTHER_EMAIL, 1L)).thenReturn(false);
+        when(customerRepository.save(customer)).thenReturn(customer);
+
+        CustomerResponse response = customerService.update(1L, request(OTHER_EMAIL));
+
+        assertThat(response.email()).isEqualTo(OTHER_EMAIL);
+        assertThat(customer.getEmail()).isEqualTo(OTHER_EMAIL);
+        verify(customerRepository).save(customer);
+    }
+
+    @Test
+    void updateStoresEmailInLowerCase() {
+        Customer customer = customer(EMAIL);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.existsByEmailIgnoreCaseAndIdNot("Anna.Nowak@Example.com", 1L)).thenReturn(false);
+        when(customerRepository.save(customer)).thenReturn(customer);
+
+        customerService.update(1L, request("Anna.Nowak@Example.com"));
+
+        assertThat(customer.getEmail()).isEqualTo(OTHER_EMAIL);
+    }
+
+    @Test
+    void updateThrowsConflictWhenEmailBelongsToAnotherCustomer() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(EMAIL)));
+        when(customerRepository.existsByEmailIgnoreCaseAndIdNot(OTHER_EMAIL, 1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> customerService.update(1L, request(OTHER_EMAIL)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Customer with email " + OTHER_EMAIL + " already exists");
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void updateThrowsNotFoundWhenCustomerDoesNotExist() {
+        when(customerRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> customerService.update(99L, request(EMAIL)))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Customer with id 99 not found");
+    }
+
+    @Test
+    void deleteRemovesExistingCustomer() {
+        Customer customer = customer(EMAIL);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+
+        customerService.delete(1L);
+
+        verify(customerRepository).delete(customer);
+    }
+
+    @Test
+    void deleteThrowsNotFoundWhenCustomerDoesNotExist() {
+        when(customerRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> customerService.delete(99L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Customer with id 99 not found");
+    }
+
+    private static Customer customer(String email) {
+        return new Customer("Jan", "Kowalski", email, "+48 601 234 567", "5260250995");
+    }
+
+    private static CustomerRequest request(String email) {
+        return new CustomerRequest("Jan", "Kowalski", email, "+48 601 234 567", "5260250995");
+    }
+}
+===== frontend/src/app/customers/customer-api.ts
+import { HttpClient, httpResource } from '@angular/common/http';
+import { Injectable, Signal, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+
+export interface Customer {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  nip: string | null;
+}
+
+export type CustomerRequest = Omit<Customer, 'id'>;
+
+@Injectable({ providedIn: 'root' })
+export class CustomerApi {
+  private readonly http = inject(HttpClient);
+  private readonly url = '/api/customers';
+
+  list() {
+    return httpResource<Customer[]>(() => this.url, { defaultValue: [] });
+  }
+
+  get(id: Signal<number | undefined>) {
+    return httpResource<Customer>(() => {
+      const customerId = id();
+      return customerId === undefined ? undefined : `${this.url}/${customerId}`;
+    });
+  }
+
+  create(request: CustomerRequest): Observable<Customer> {
+    return this.http.post<Customer>(this.url, request);
+  }
+
+  update(id: number, request: CustomerRequest): Observable<Customer> {
+    return this.http.put<Customer>(`${this.url}/${id}`, request);
+  }
+
+  delete(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.url}/${id}`);
+  }
+}
+===== frontend/src/app/customers/customer-detail.html
+<p><a routerLink="/customers">Back to customers</a></p>
+
+@if (customer.isLoading()) {
+  <p>Loading…</p>
+} @else if (customer.error(); as error) {
+  <p class="error" role="alert">{{ loadError(error) }}</p>
+} @else if (customer.value(); as customer) {
+  <h1>{{ customer.firstName }} {{ customer.lastName }}</h1>
+
+  <dl>
+    <dt>First name</dt>
+    <dd>{{ customer.firstName }}</dd>
+    <dt>Last name</dt>
+    <dd>{{ customer.lastName }}</dd>
+    <dt>E-mail</dt>
+    <dd>{{ customer.email }}</dd>
+    <dt>Phone</dt>
+    <dd>{{ customer.phone }}</dd>
+    <dt>NIP</dt>
+    <dd>{{ customer.nip ?? '—' }}</dd>
+  </dl>
+
+  <p><a [routerLink]="['/customers', customer.id, 'edit']">Edit</a></p>
+}
+===== frontend/src/app/customers/customer-detail.ts
+import { Component, inject, input, numberAttribute } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { loadErrorMessage } from '../shared/problem-detail';
+import { CustomerApi } from './customer-api';
+
+@Component({
+  selector: 'app-customer-detail',
+  imports: [RouterLink],
+  templateUrl: './customer-detail.html',
+})
+export class CustomerDetail {
+  private readonly customerApi = inject(CustomerApi);
+
+  readonly id = input.required({ transform: numberAttribute });
+
+  protected readonly customer = this.customerApi.get(this.id);
+
+  protected loadError(error: unknown): string {
+    return loadErrorMessage(error, 'Customer not found');
+  }
+}
+===== frontend/src/app/customers/customer-form.html
+<h1>{{ isEdit() ? 'Edit customer' : 'New customer' }}</h1>
+
+@if (customer.isLoading()) {
+  <p>Loading…</p>
+} @else if (customer.error(); as error) {
+  <p class="error" role="alert">{{ loadError(error) }}</p>
+} @else if (!isEdit() || customer.hasValue()) {
+  <form [formRoot]="customerForm">
+    @for (error of customerForm().errors(); track error) {
+      <p class="error" role="alert">{{ error.message }}</p>
+    }
+
+    <label>
+      First name
+      <input type="text" [formField]="customerForm.firstName" />
+    </label>
+    @if (customerForm.firstName().touched()) {
+      @for (error of customerForm.firstName().errors(); track error) {
+        <p class="error" role="alert">{{ error.message }}</p>
+      }
+    }
+
+    <label>
+      Last name
+      <input type="text" [formField]="customerForm.lastName" />
+    </label>
+    @if (customerForm.lastName().touched()) {
+      @for (error of customerForm.lastName().errors(); track error) {
+        <p class="error" role="alert">{{ error.message }}</p>
+      }
+    }
+
+    <label>
+      E-mail
+      <input type="email" [formField]="customerForm.email" />
+    </label>
+    @if (customerForm.email().touched()) {
+      @for (error of customerForm.email().errors(); track error) {
+        <p class="error" role="alert">{{ error.message }}</p>
+      }
+    }
+
+    <label>
+      Phone
+      <input type="tel" [formField]="customerForm.phone" />
+    </label>
+    @if (customerForm.phone().touched()) {
+      @for (error of customerForm.phone().errors(); track error) {
+        <p class="error" role="alert">{{ error.message }}</p>
+      }
+    }
+
+    <label>
+      NIP (companies only)
+      <input type="text" [formField]="customerForm.nip" />
+    </label>
+    @if (customerForm.nip().touched()) {
+      @for (error of customerForm.nip().errors(); track error) {
+        <p class="error" role="alert">{{ error.message }}</p>
+      }
+    }
+
+    <button type="submit" [disabled]="customerForm().submitting()">Save</button>
+    <a [routerLink]="isEdit() ? ['/customers', id()] : ['/customers']">Cancel</a>
+  </form>
+}
+===== frontend/src/app/customers/customer-form.spec.ts
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
+import { CustomerForm } from './customer-form';
+
+describe('CustomerForm', () => {
+  let fixture: ComponentFixture<CustomerForm>;
+  let element: HTMLElement;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    });
+    fixture = TestBed.createComponent(CustomerForm);
+    element = fixture.nativeElement;
+    http = TestBed.inject(HttpTestingController);
+    await fixture.whenStable();
+  });
+
+  afterEach(() => http.verify());
+
+  function fill(type: string, index: number, value: string): void {
+    const input = element.querySelectorAll<HTMLInputElement>(`input[type="${type}"]`)[index];
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
+  function fillValidCustomer(): void {
+    fill('text', 0, 'Jan');
+    fill('text', 1, 'Kowalski');
+    fill('email', 0, 'jan.kowalski@example.com');
+    fill('tel', 0, '+48 601 234 567');
+  }
+
+  async function submit(): Promise<void> {
+    element.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+  }
+
+  function errors(): string[] {
+    return Array.from(element.querySelectorAll('.error'), (error) => error.textContent!.trim());
+  }
+
+  it('shows required errors and sends nothing when the form is empty', async () => {
+    await submit();
+
+    http.expectNone('/api/customers');
+    expect(errors()).toEqual([
+      'First name is required',
+      'Last name is required',
+      'E-mail is required',
+      'Phone is required',
+    ]);
+  });
+
+  it('leaves format rules to the backend', async () => {
+    fillValidCustomer();
+    fill('email', 0, 'not-an-email');
+    fill('text', 2, '123');
+
+    await submit();
+
+    const request = http.expectOne({ method: 'POST', url: '/api/customers' });
+    expect(request.request.body.email).toBe('not-an-email');
+    expect(request.request.body.nip).toBe('123');
+    request.flush(
+      {
+        title: 'Bad Request',
+        status: 400,
+        detail: 'Validation failed',
+        errors: [
+          { field: 'email', message: 'must be a well-formed email address' },
+          { field: 'nip', message: 'must be exactly 10 digits' },
+        ],
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+
+    await vi.waitFor(() =>
+      expect(errors()).toEqual([
+        'must be a well-formed email address',
+        'must be exactly 10 digits',
+      ]),
+    );
+  });
+
+  it('creates the customer and navigates to its details', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    fillValidCustomer();
+    fill('text', 2, '5260250995');
+
+    await submit();
+    const request = http.expectOne({ method: 'POST', url: '/api/customers' });
+    expect(request.request.body).toEqual({
+      firstName: 'Jan',
+      lastName: 'Kowalski',
+      email: 'jan.kowalski@example.com',
+      phone: '+48 601 234 567',
+      nip: '5260250995',
+    });
+    request.flush({ id: 7, ...request.request.body });
+
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(['/customers', 7]));
+  });
+
+  it('sends an empty NIP as null', async () => {
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    fillValidCustomer();
+
+    await submit();
+    const request = http.expectOne({ method: 'POST', url: '/api/customers' });
+    expect(request.request.body.nip).toBeNull();
+    request.flush({ id: 7, ...request.request.body });
+  });
+
+  it('loads the customer in edit mode and updates it', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const customer = {
+      id: 3,
+      firstName: 'Piotr',
+      lastName: 'Wiśniewski',
+      email: 'biuro@wisniewski-transport.example.com',
+      phone: '+48 22 123 45 67',
+      nip: null,
+    };
+    fixture.componentRef.setInput('id', '3');
+    fixture.detectChanges();
+    http.expectOne({ method: 'GET', url: '/api/customers/3' }).flush(customer);
+    await fixture.whenStable();
+    fill('tel', 0, '+48 22 765 43 21');
+
+    await submit();
+    const request = http.expectOne({ method: 'PUT', url: '/api/customers/3' });
+    expect(request.request.body).toEqual({
+      firstName: 'Piotr',
+      lastName: 'Wiśniewski',
+      email: 'biuro@wisniewski-transport.example.com',
+      phone: '+48 22 765 43 21',
+      nip: null,
+    });
+    request.flush({ ...customer, phone: '+48 22 765 43 21' });
+
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(['/customers', 3]));
+  });
+
+  it('shows a dedicated message when the customer to edit does not exist', async () => {
+    fixture.componentRef.setInput('id', '99');
+    fixture.detectChanges();
+    http
+      .expectOne({ method: 'GET', url: '/api/customers/99' })
+      .flush(
+        { title: 'Not Found', status: 404, detail: 'Customer with id 99 not found' },
+        { status: 404, statusText: 'Not Found' },
+      );
+
+    await vi.waitFor(() => expect(errors()).toEqual(['Customer not found']));
+  });
+
+  it('shows the ProblemDetail detail when loading the customer fails', async () => {
+    fixture.componentRef.setInput('id', '3');
+    fixture.detectChanges();
+    http
+      .expectOne({ method: 'GET', url: '/api/customers/3' })
+      .flush(
+        { title: 'Service Unavailable', status: 503, detail: 'Database is unavailable' },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+
+    await vi.waitFor(() => expect(errors()).toEqual(['Database is unavailable']));
+  });
+
+  it('shows object-level errors returned by the backend above the form', async () => {
+    fillValidCustomer();
+
+    await submit();
+    http.expectOne({ method: 'POST', url: '/api/customers' }).flush(
+      {
+        title: 'Bad Request',
+        status: 400,
+        detail: 'Validation failed',
+        errors: [{ field: null, message: 'request body must be valid JSON' }],
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+
+    await vi.waitFor(() => expect(errors()).toEqual(['request body must be valid JSON']));
+  });
+
+  it('shows field errors returned by the backend as ProblemDetail', async () => {
+    fillValidCustomer();
+
+    await submit();
+    http.expectOne({ method: 'POST', url: '/api/customers' }).flush(
+      {
+        title: 'Bad Request',
+        status: 400,
+        detail: 'Validation failed',
+        errors: [
+          {
+            field: 'phone',
+            message: 'must contain 6 to 20 digits, spaces or dashes, optionally starting with +',
+          },
+        ],
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+
+    await vi.waitFor(() =>
+      expect(errors()).toEqual([
+        'must contain 6 to 20 digits, spaces or dashes, optionally starting with +',
+      ]),
+    );
+  });
+
+  it('shows the ProblemDetail detail when the backend reports a conflict', async () => {
+    fillValidCustomer();
+
+    await submit();
+    http.expectOne({ method: 'POST', url: '/api/customers' }).flush(
+      {
+        title: 'Conflict',
+        status: 409,
+        detail: 'Customer with email jan.kowalski@example.com already exists',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    await vi.waitFor(() =>
+      expect(errors()).toEqual(['Customer with email jan.kowalski@example.com already exists']),
+    );
+  });
+});
+===== frontend/src/app/customers/customer-form.ts
+import { Component, computed, inject, input, linkedSignal } from '@angular/core';
+import { FormField, FormRoot, form, required } from '@angular/forms/signals';
+import { Router, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
+import { loadErrorMessage, problemDetailToFormErrors } from '../shared/problem-detail';
+import { optionalNumberAttribute } from '../shared/route-params';
+import { Customer, CustomerApi, CustomerRequest } from './customer-api';
+
+interface CustomerFormModel {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  nip: string;
+}
+
+function toFormModel(customer: Customer | undefined): CustomerFormModel {
+  return {
+    firstName: customer?.firstName ?? '',
+    lastName: customer?.lastName ?? '',
+    email: customer?.email ?? '',
+    phone: customer?.phone ?? '',
+    nip: customer?.nip ?? '',
+  };
+}
+
+function toRequest(model: CustomerFormModel): CustomerRequest {
+  return {
+    firstName: model.firstName,
+    lastName: model.lastName,
+    email: model.email,
+    phone: model.phone,
+    nip: model.nip || null,
+  };
+}
+
+@Component({
+  selector: 'app-customer-form',
+  imports: [FormField, FormRoot, RouterLink],
+  templateUrl: './customer-form.html',
+})
+export class CustomerForm {
+  private readonly customerApi = inject(CustomerApi);
+  private readonly router = inject(Router);
+
+  readonly id = input(undefined, { transform: optionalNumberAttribute });
+
+  protected readonly isEdit = computed(() => this.id() !== undefined);
+  protected readonly customer = this.customerApi.get(this.id);
+
+  private readonly model = linkedSignal(() =>
+    toFormModel(this.customer.hasValue() ? this.customer.value() : undefined),
+  );
+
+  protected readonly customerForm = form(
+    this.model,
+    (path) => {
+      required(path.firstName, { message: 'First name is required' });
+      required(path.lastName, { message: 'Last name is required' });
+      required(path.email, { message: 'E-mail is required' });
+      required(path.phone, { message: 'Phone is required' });
+    },
+    {
+      submission: {
+        action: async (customerForm) => {
+          const request = toRequest(customerForm().value());
+          const id = this.id();
+          try {
+            const saved = await firstValueFrom(
+              id === undefined
+                ? this.customerApi.create(request)
+                : this.customerApi.update(id, request),
+            );
+            await this.router.navigate(['/customers', saved.id]);
+            return undefined;
+          } catch (error) {
+            return problemDetailToFormErrors(error, customerForm);
+          }
+        },
+      },
+    },
+  );
+
+  protected loadError(error: unknown): string {
+    return loadErrorMessage(error, 'Customer not found');
+  }
+}
+===== frontend/src/app/customers/customer-list.html
+<h1>Customers</h1>
+
+<p><a routerLink="/customers/new">Add customer</a></p>
+
+@if (deleteError(); as message) {
+  <p class="error" role="alert">{{ message }}</p>
+}
+
+@if (customers.isLoading()) {
+  <p>Loading…</p>
+} @else if (customers.error(); as error) {
+  <p class="error" role="alert">{{ loadError(error) }}</p>
+} @else if (customers.value(); as customers) {
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>E-mail</th>
+        <th>Phone</th>
+        <th>NIP</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (customer of customers; track customer.id) {
+        <tr>
+          <td>
+            <a [routerLink]="['/customers', customer.id]"
+              >{{ customer.firstName }} {{ customer.lastName }}</a
+            >
+          </td>
+          <td>{{ customer.email }}</td>
+          <td>{{ customer.phone }}</td>
+          <td>{{ customer.nip ?? '—' }}</td>
+          <td>
+            <a [routerLink]="['/customers', customer.id, 'edit']">Edit</a>
+            <button type="button" (click)="delete(customer)">Delete</button>
+          </td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="5">No customers yet.</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+===== frontend/src/app/customers/customer-list.ts
+import { Component, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
+import { loadErrorMessage, problemDetailMessage } from '../shared/problem-detail';
+import { Customer, CustomerApi } from './customer-api';
+
+@Component({
+  selector: 'app-customer-list',
+  imports: [RouterLink],
+  templateUrl: './customer-list.html',
+})
+export class CustomerList {
+  private readonly customerApi = inject(CustomerApi);
+
+  protected readonly customers = this.customerApi.list();
+  protected readonly deleteError = signal<string | null>(null);
+
+  protected loadError(error: unknown): string {
+    return loadErrorMessage(error, 'Customers not found');
+  }
+
+  protected async delete(customer: Customer): Promise<void> {
+    this.deleteError.set(null);
+    try {
+      await firstValueFrom(this.customerApi.delete(customer.id));
+      this.customers.reload();
+    } catch (error) {
+      this.deleteError.set(problemDetailMessage(error));
+    }
+  }
+}
+===== frontend/src/app/customers/customers.routes.ts
+import { Routes } from '@angular/router';
+import { CustomerDetail } from './customer-detail';
+import { CustomerForm } from './customer-form';
+import { CustomerList } from './customer-list';
+
+export const customersRoutes: Routes = [
+  { path: '', component: CustomerList },
+  { path: 'new', component: CustomerForm },
+  { path: ':id/edit', component: CustomerForm },
+  { path: ':id', component: CustomerDetail },
+];

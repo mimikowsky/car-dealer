@@ -1,0 +1,649 @@
+# Field type mapping
+
+One row per kind of field. Use it to fill the field spec table, then use the same decision in every
+layer (SQL, entity, request, response, mapper, TS interface, form model, form input, tests).
+
+| Kind | SQL | Entity (Java) | Request validation | TS type | Form model / input | List/detail display |
+| --- | --- | --- | --- | --- | --- | --- |
+| Required short text | `VARCHAR(n) NOT NULL` | `String`, `@Column(nullable = false, length = n)` | `@NotBlank @Size(max = n)` | `string` | `string`, `<input type="text">` | value |
+| Optional short text | `VARCHAR(n)` | `String`, `@Column(length = n)` | `@Size(max = n)` (+ `@Pattern` if format) | `string \| null` | `string`, `<input type="text">`, `toRequest`: `model.x \|\| null` | `value ?? '—'` |
+| Formatted code (VIN, NIP, postal code) | `VARCHAR(n)` exact length | `String` | `@Pattern(regexp = "...", message = "must be ...")` (+ `@NotBlank` if required) | `string` | `<input type="text">` | value |
+| Email | `VARCHAR(255) NOT NULL` | `String` | `@NotBlank @Email @Size(max = 255)` | `string` | `<input type="email">` | value |
+| Phone | `VARCHAR(20) NOT NULL` | `String` | `@NotBlank @Pattern(regexp = "\\+?[0-9 -]{6,20}", message = "must contain 6 to 20 digits, spaces or dashes, optionally starting with +") @Size(max = 20)` | `string` | `<input type="tel">` | value |
+| Long text | `VARCHAR(1000)` | `String`, `length = 1000` | `@Size(max = 1000)` | `string \| null` | `<textarea>` | value |
+| Integer | `INTEGER NOT NULL` | `Integer` | `@NotNull` + `@Min/@Max/@Positive` | `number` | `number \| null`, `<input type="number">`, `toRequest`: `model.x!` | value |
+| Decimal / money | `NUMERIC(12, 2) NOT NULL` | `BigDecimal`, `@Column(nullable = false, precision = 12, scale = 2)` | `@NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)` | `number` | `number \| null`, `<input type="number" step="0.01">` | value |
+| Required date | `DATE NOT NULL` | `LocalDate`, `@Column(nullable = false)` | `@NotNull` (+ `@PastOrPresent` / `@FutureOrPresent`) | `string` (ISO) | `string`, `<input type="date">` | value |
+| Optional date | `DATE` | `LocalDate` | none (+ rule annotation) | `string \| null` | `string`, `<input type="date">`, `toRequest`: `model.x \|\| null` | `value ?? '—'` |
+| Boolean flag | `BOOLEAN DEFAULT FALSE NOT NULL` | `boolean`, `@Column(nullable = false)` | none; record component is primitive `boolean` (missing → `false`) | `boolean` | `boolean`, `<input type="checkbox">` inside the label | `value ? 'Yes' : 'No'` |
+| Enum | `VARCHAR(20) NOT NULL` | `@Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)` + separate `enum` file | `@NotNull` | string union | `Type \| ''`, `<select>` with `<option value="">Select {label lowercase}</option>`, `toRequest`: `model.x as Type` | `LABELS[value]` |
+
+## Notes
+
+- Default lengths when the description gives none: names 50 (person names 100), codes = exact
+  length, email 255, phone 20, free text 1000.
+- Required strings use `@NotBlank`; never `@NotNull` alone for strings. Message comes from Bean
+  Validation defaults (`must not be blank`), English thanks to the fixed locale.
+- `@Pattern`, `@Email` and `@Size` accept `null`, so optional fields only carry the format rule.
+  Remember a blank string `""` sent to a field with `@NotBlank` **and** `@Pattern` produces two errors
+  for that field; `@Email` accepts `""`.
+- Every custom `@Pattern` gets a human `message` (see `VehicleRequest.vin`).
+- A rule that needs code (relative to the current year/date, cross-field) becomes a custom
+  constraint annotation + `ConstraintValidator` like `@ProductionYear`, or a service check if it
+  depends on other data (then it is a 409, not a 400).
+- Uniqueness:
+  - case-sensitive (codes, VIN): `existsByX(String)`, `existsByXAndIdNot(String, Long)`;
+  - case-insensitive (email, usernames): `existsByXIgnoreCase(String)`,
+    `existsByXIgnoreCaseAndIdNot(String, Long)`; store the value as entered.
+  - Always also add `CONSTRAINT uq_{table}_{column} UNIQUE ({column})` in SQL.
+  - Optional unique fields: only check when the value is not `null`.
+- Column naming: snake_case of the field (`plannedHandoverDate` → `planned_handover_date`), aligned
+  with spaces in the `CREATE TABLE` like `V1__vehicle.sql`.
+- H2 reserved words cannot be table or column names: `user`, `order`, `value`, `values`, `key`,
+  `year`, `month`, `day`, `hour`, `minute`, `second`, `limit`, `offset`, `table`, `row`, `group`,
+  `from`, `to`, `end`, `default`, `interval`. Keep the Java/JSON name and map it with
+  `@Column(name = "...")` to a safe column (e.g. field `year` → column `model_year`); for a table use
+  `@Table(name = "app_user")` etc.
+- Reference to another entity by id (not nested URL): `Long {other}Id` in request/response,
+  `@ManyToOne(optional = false, fetch = FetchType.LAZY) @JoinColumn(name = "{other}_id")` in the
+  entity, `BIGINT NOT NULL` + `CONSTRAINT fk_{table}_{other} FOREIGN KEY ({other}_id) REFERENCES {other} (id)`.
+  The service loads the referenced entity and throws `NotFoundException` if missing.
+  For URLs nested under a parent see [child-resource.md](child-resource.md).
+# Backend templates
+
+Placeholders: `{Entity}` (PascalCase), `{entity}` (camelCase), `{Entities}` / `{entities}` (plural),
+`{package}`, `{table}`, `{url}` (e.g. `customers`), `{Key}` / `{key}` / `{key_column}` /
+`{key label}` (the unique natural-key field, e.g. `Email` / `email` / `email` / `email`).
+Lines marked `// each field` repeat per field from the field spec, in spec order.
+Sections marked *(if unique)* exist only when the entity has a unique field; repeat them per unique field.
+
+Package: `com.example.dealership.{package}`. All files in one package (main and test).
+
+## Migrations
+
+`backend/src/main/resources/db/migration/V{n}__{table}.sql`
+
+```sql
+CREATE TABLE {table} (
+    id         BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    first_name VARCHAR(100) NOT NULL,      -- each field, columns aligned
+    nip        VARCHAR(10),
+    CONSTRAINT uq_{table}_{key_column} UNIQUE ({key_column})
+);
+```
+
+`V{n+1}__{table}_seed.sql`: 2–3 rows, every row valid against the Request validation and unique.
+
+```sql
+INSERT INTO {table} (first_name, nip) VALUES
+    ('Jan', NULL),
+    ('Anna', '5260250995');
+```
+
+## Entity
+
+```java
+package com.example.dealership.{package};
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "{table}")
+public class {Entity} {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 100)   // each field: mirror the SQL column
+    private String firstName;
+
+    protected {Entity}() {
+    }
+
+    public {Entity}(String firstName /* , every field except id, spec order */) {
+        this.firstName = firstName;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    // each field: getter + setter, no other methods
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+}
+```
+
+`java.time.LocalDate` / `java.math.BigDecimal` imports go first (java.*), then a blank line,
+then `jakarta.*`, as in `Vehicle.java`. Enum columns: `@Enumerated(EnumType.STRING)` above
+`@Column(nullable = false, length = 20)`. Boolean: `@Column(nullable = false) private boolean x;`
+with getter `isX()`.
+
+## Enum
+
+```java
+package com.example.dealership.{package};
+
+public enum {EnumName} {
+    VALUE_ONE,
+    VALUE_TWO
+}
+```
+
+## Request / Response
+
+```java
+public record {Entity}Request(
+        @NotBlank
+        @Size(max = 100)
+        String firstName,
+
+        @Size(max = 10)
+        @Pattern(regexp = "[0-9]{10}", message = "must be exactly 10 digits")
+        String nip
+) {
+}
+```
+
+One annotation per line, a blank line between components (see `VehicleRequest`).
+
+```java
+public record {Entity}Response(
+        Long id,
+        String firstName,
+        String nip
+) {
+}
+```
+
+## Mapper
+
+```java
+public final class {Entity}Mapper {
+
+    private {Entity}Mapper() {
+    }
+
+    public static {Entity} toEntity({Entity}Request request) {
+        return new {Entity}(
+                request.firstName(),
+                request.nip());
+    }
+
+    public static void updateEntity({Entity} {entity}, {Entity}Request request) {
+        {entity}.setFirstName(request.firstName());
+        {entity}.setNip(request.nip());
+    }
+
+    public static {Entity}Response toResponse({Entity} {entity}) {
+        return new {Entity}Response(
+                {entity}.getId(),
+                {entity}.getFirstName(),
+                {entity}.getNip());
+    }
+}
+```
+
+## Repository
+
+```java
+public interface {Entity}Repository extends JpaRepository<{Entity}, Long> {
+
+    boolean existsBy{Key}(String {key});                 // (if unique) IgnoreCase variant for emails
+
+    boolean existsBy{Key}AndIdNot(String {key}, Long id);
+}
+```
+
+No unique field → empty interface body `{ }` on separate lines like a normal interface.
+
+## Service
+
+```java
+@Service
+@Transactional(readOnly = true)
+public class {Entity}Service {
+
+    private final {Entity}Repository {entity}Repository;
+
+    public {Entity}Service({Entity}Repository {entity}Repository) {
+        this.{entity}Repository = {entity}Repository;
+    }
+
+    public List<{Entity}Response> findAll() {
+        return {entity}Repository.findAll(Sort.by("id")).stream()
+                .map({Entity}Mapper::toResponse)
+                .toList();
+    }
+
+    public {Entity}Response findById(Long id) {
+        return {Entity}Mapper.toResponse(get{Entity}(id));
+    }
+
+    @Transactional
+    public {Entity}Response create({Entity}Request request) {
+        if ({entity}Repository.existsBy{Key}(request.{key}())) {          // (if unique)
+            throw {key}AlreadyExists(request.{key}());
+        }
+        {Entity} {entity} = {entity}Repository.save({Entity}Mapper.toEntity(request));
+        return {Entity}Mapper.toResponse({entity});
+    }
+
+    @Transactional
+    public {Entity}Response update(Long id, {Entity}Request request) {
+        {Entity} {entity} = get{Entity}(id);
+        if ({entity}Repository.existsBy{Key}AndIdNot(request.{key}(), id)) {   // (if unique)
+            throw {key}AlreadyExists(request.{key}());
+        }
+        {Entity}Mapper.updateEntity({entity}, request);
+        return {Entity}Mapper.toResponse({entity}Repository.save({entity}));
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        {entity}Repository.delete(get{Entity}(id));
+    }
+
+    private {Entity} get{Entity}(Long id) {
+        return {entity}Repository.findById(id)
+                .orElseThrow(() -> new NotFoundException("{Entity} with id " + id + " not found"));
+    }
+
+    private static ConflictException {key}AlreadyExists(String {key}) {   // (if unique)
+        return new ConflictException("{Entity} with {key label} " + {key} + " already exists");
+    }
+}
+```
+
+Optional unique field: guard with `request.{key}() != null && ...`.
+
+## Controller
+
+Identical to `VehicleController` with names replaced: `@RequestMapping("/api/{url}")`,
+`findAll`, `findById`, `create` (201 + `ServletUriComponentsBuilder` Location), `update`,
+`delete` (204). Constructor injection, `@Valid @RequestBody`.
+
+## Test checklist
+
+### `{Entity}ControllerTest` — `@WebMvcTest({Entity}Controller.class)`, `@MockitoBean {Entity}Service`
+
+Constants: natural-key constant (e.g. `EMAIL`), `VALID_BODY` text block with every field (optional
+ones filled), helpers `invalidBody()` and `response()`. Method names and assertions as in
+`VehicleControllerTest`:
+
+| Test | Asserts |
+| --- | --- |
+| `findAllReturns{Entities}` | 200, length 1, id, key field, one field of each kind (enum, date, boolean…) |
+| `findByIdReturns{Entity}` | 200, key field |
+| `findByIdReturnsNotFoundProblemWhen{Entity}DoesNotExist` | 404, `application/problem+json`, `status`, `detail` |
+| `createReturnsCreated{Entity}` | 201, `Location` = `http://localhost/api/{url}/1`, id |
+| `createReturnsBadRequestProblemWithFieldErrorsWhenRequestIsInvalid` | 400, `detail` = `Validation failed`, exact `errors.length()`, each `field` (sorted alphabetically) and at least one `message`; `verifyNoInteractions(service)` |
+| `createReturnsEnglishValidationMessagesWhenAcceptLanguageIsPolish` | `Accept-Language: pl`, blank required field → `must not be blank` |
+| `createReturnsBadRequestProblemWithFieldErrorWhen{EnumField}IsUnknown` *(per enum)* | `must be one of: A, B, C` |
+| `createReturnsBadRequestProblemWithFieldErrorWhenValueHasWrongType` | number/date/boolean field given `"text"` (only strings? give a string field `{}`) → `has an invalid value` |
+| `createReturnsBadRequestProblemWhenBodyIsNotJson` | `{ not json` → field `null`, `request body must be valid JSON` |
+| `createReturnsConflictProblemWhen{Key}AlreadyExists` *(if unique)* | 409, detail from `ConflictException` |
+| `createReturnsConflictProblemWhenDatabaseConstraintIsViolated` | `DataIntegrityViolationException("uq_{table}_{key_column}")` → 409 `Request conflicts with existing data` |
+| `updateReturnsUpdated{Entity}` | 200 |
+| `updateReturnsNotFoundProblemWhen{Entity}DoesNotExist` | 404 |
+| `updateReturnsBadRequestProblemWithFieldErrorsWhenRequestIsInvalid` | 400 fields, no interactions |
+| `updateReturnsConflictProblemWhen{Key}AlreadyExists` *(if unique)* | 409 |
+| `deleteReturnsNoContent` | 204, `verify(service).delete(1L)` |
+| `deleteReturnsNotFoundProblemWhen{Entity}DoesNotExist` | 404 via `doThrow` |
+
+`invalidBody()`: break 3 fields of different kinds so that each produces **exactly one** error
+(a blank required string without a pattern, a pattern/email violation, a range violation, a missing
+required field). Errors are sorted by field name, then message — assert in that order.
+
+### `{Entity}ServiceTest` — `@ExtendWith(MockitoExtension.class)`, `@Mock` repository, `@InjectMocks` service
+
+`findAllReturnsMapped{Entities}` (verifies `Sort.by("id")`), `findByIdThrowsNotFoundWhen{Entity}DoesNotExist`
+(exact message), `createSaves{Entity}` (save answers its argument; assert mapped fields),
+`createThrowsConflictWhen{Key}AlreadyExists` (exact message, `never()).save(any())`),
+`updateChangesExisting{Entity}`, `updateThrowsConflictWhen{Key}BelongsToAnother{Entity}`,
+`updateThrowsNotFoundWhen{Entity}DoesNotExist`, `deleteRemovesExisting{Entity}`,
+`deleteThrowsNotFoundWhen{Entity}DoesNotExist`. Helpers `{entity}(key)` and `request(key)`,
+constants `KEY` / `OTHER_KEY`. Optional unique field: add a test that `null` skips the check.
+Custom business rules: one test per rule and per boundary.
+
+### `{Entity}RepositoryTest` — `@DataJpaTest`, `TestEntityManager`
+
+Use key values that differ from the seed data. `existsBy{Key}AndIdNotFinds{Key}OfAnother{Entity}`
+(two saved rows, true/false/unknown key; for IgnoreCase also check different case) and
+`saveStores{Entity}ThatCanBeReadBack` (flush, clear, `findById`, `isNotSameAs`, every field).
+# Frontend templates
+
+Placeholders as in [backend.md](backend.md), plus `{fe-file}` (singular kebab, e.g. `customer`),
+`{fe-folder}` (plural kebab, e.g. `customers`), `{Label}` / `{Labels}` (UI text, e.g. `Customer`),
+`{label}` (lowercase UI text). Folder: `frontend/src/app/{fe-folder}/`.
+Start from a copy of the matching vehicle file and replace names and fields; the snippets below show
+only what changes per entity.
+
+## `{fe-file}-api.ts`
+
+```ts
+import { HttpClient, httpResource } from '@angular/common/http';
+import { Injectable, Signal, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+
+// per enum field:
+export type CustomerType = 'PRIVATE' | 'COMPANY';
+export const CUSTOMER_TYPE_LABELS: Record<CustomerType, string> = { PRIVATE: 'Private', COMPANY: 'Company' };
+export const CUSTOMER_TYPES = Object.keys(CUSTOMER_TYPE_LABELS) as CustomerType[];
+
+export interface {Entity} {
+  id: number;
+  firstName: string;        // each field, TS type from field-types.md, optional → `T | null`
+  nip: string | null;
+}
+
+export type {Entity}Request = Omit<{Entity}, 'id'>;
+
+@Injectable({ providedIn: 'root' })
+export class {Entity}Api {
+  private readonly http = inject(HttpClient);
+  private readonly url = '/api/{url}';
+  // list(), get(id), create(), update(), delete(): identical to VehicleApi
+}
+```
+
+## `{fe-folder}.routes.ts`
+
+```ts
+export const {entities}Routes: Routes = [
+  { path: '', component: {Entity}List },
+  { path: 'new', component: {Entity}Form },
+  { path: ':id/edit', component: {Entity}Form },
+  { path: ':id', component: {Entity}Detail },
+];
+```
+
+`app.routes.ts`: add after the vehicles entry
+
+```ts
+  {
+    path: '{fe-folder}',
+    loadChildren: () => import('./{fe-folder}/{fe-folder}.routes').then((m) => m.{entities}Routes),
+  },
+```
+
+`app.html`: add `<a routerLink="/{fe-folder}" routerLinkActive="active">{Labels}</a>` after the
+existing links inside `<nav>`.
+
+## List (`{fe-file}-list.ts/.html`)
+
+Copy `vehicle-list`. Changes:
+- `loadErrorMessage(error, '{Labels} not found')`.
+- Heading `<h1>{Labels}</h1>`, link `Add {label}`.
+- One `<th>` per displayed field (skip long text), last column `Actions`. First column is the key
+  field (or the most identifying one) as a `routerLink` to the detail.
+- Cell display per field-types.md (`?? '—'` for optional, labels for enums, `Yes/No` for booleans).
+- `@empty` row: `colspan` = number of columns, text `No {labels} yet.`
+- Expose label records used by the template as `protected readonly`.
+
+## Detail (`{fe-file}-detail.ts/.html`)
+
+Copy `vehicle-detail`. `<p><a routerLink="/{fe-folder}">Back to {labels}</a></p>`, `<h1>` with the
+most human field(s) (e.g. `{{ customer.firstName }} {{ customer.lastName }}`), a `<dl>` with every
+field (`<dt>` label, `<dd>` display), Edit link. Do not copy the vehicle "Documents" section.
+
+## Form (`{fe-file}-form.ts/.html`)
+
+`{Entity}FormModel` interface: strings as `string` (optional ones too), numbers `number | null`,
+enums `Type | ''`, booleans `boolean`, dates `string`.
+
+```ts
+function toFormModel(customer: Customer | undefined): CustomerFormModel {
+  return {
+    firstName: customer?.firstName ?? '',
+    nip: customer?.nip ?? '',
+    active: customer?.active ?? false,
+    rating: customer?.rating ?? null,
+    type: customer?.type ?? '',
+  };
+}
+
+function toRequest(model: CustomerFormModel): CustomerRequest {
+  return {
+    firstName: model.firstName,
+    nip: model.nip || null,          // every optional string/date
+    active: model.active,
+    rating: model.rating!,           // required number
+    type: model.type as CustomerType,
+  };
+}
+```
+
+Validators: one `required(path.x, { message: '{Field label} is required' })` per required field, in
+field order. Nothing else. Submission/navigation/`problemDetailToFormErrors` identical to
+`VehicleForm`, navigating to `['/{fe-folder}', saved.id]`. Not-found text `'{Entity} not found'`.
+
+Template: copy `vehicle-form.html`; heading `Edit {label}` / `New {label}`; one block per field:
+
+```html
+    <label>
+      First name
+      <input type="text" [formField]="customerForm.firstName" />
+    </label>
+    @if (customerForm.firstName().touched()) {
+      @for (error of customerForm.firstName().errors(); track error) {
+        <p class="error" role="alert">{{ error.message }}</p>
+      }
+    }
+```
+
+Checkbox: `<label><input type="checkbox" [formField]="form.active" /> Active</label>`.
+Select: as the fuel type select, with `<option value="">Select {field label lowercase}</option>`.
+Cancel link: `isEdit() ? ['/{fe-folder}', id()] : ['/{fe-folder}']`.
+
+## Form spec (`{fe-file}-form.spec.ts`)
+
+Copy `vehicle-form.spec.ts` (same `beforeEach`, `afterEach(() => http.verify())`, helpers `fill`,
+`select`, `submit`, `errors`). Inputs are found by `input[type="..."]` and index **in DOM order per
+type** — recount after writing the template (`email`, `tel`, `date` are separate types from `text`).
+Checkbox: `element.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[i].click()`.
+
+`fillValid{Entity}()` fills only the required fields. Tests, all mandatory:
+
+1. `shows required errors and sends nothing when the form is empty` — `http.expectNone('/api/{url}')`,
+   exact list of required messages in field order.
+2. `leaves format and range rules to the backend` — fill an invalid format value (e.g. email
+   `not-an-email`), POST is sent with that value, flush a 400 with field errors, errors shown
+   (displayed in DOM/field order, not response order).
+3. `creates the {label} and navigates to its details` — fill all fields including optional ones,
+   `expect(request.request.body).toEqual({...})` with **every** field, navigate to `['/{fe-folder}', 7]`.
+   Add a variant assertion (or separate test) that empty optional fields are sent as `null`.
+4. `loads the {label} in edit mode and updates it` — `setInput('id', '3')`, flush GET, change one field,
+   PUT body `toEqual` the full entity without id.
+5. `shows a dedicated message when the {label} to edit does not exist` — 404 → `'{Entity} not found'`.
+6. `shows the ProblemDetail detail when loading the {label} fails` — 503 → detail text.
+7. `shows object-level errors returned by the backend above the form` — 400 with `field: null`.
+8. `shows field errors returned by the backend as ProblemDetail`.
+9. `shows the ProblemDetail detail when the backend reports a conflict` — 409 with the real conflict
+   message of the unique field (or a generic `Request conflicts with existing data` if none).
+======
+# INTENT: dokumenty pojazdów i gotowość do wydania, lista klientów
+
+Źródło: transkrypcja spotkania z salonem Auto Mazur (`BRIEF.md`) oraz kontrakt API z briefu.
+Kontrakt API (ścieżki, nazwy typów, statusów i `reason`, kody 409) jest stały i ma pierwszeństwo przed
+założeniami poniżej.
+
+## Cel
+
+Salon chce zastąpić papierową checklistę sprawdzaniem w systemie, czy auto ma komplet poprawnych
+dokumentów przed wydaniem klientowi. Problem do rozwiązania: auto wydane (lub prawie wydane) bez
+wymaganego dokumentu, np. bez COC, bo ktoś to przeoczył.
+
+Użytkownicy: Anna (administracja sprzedaży) i Tomek (doradca handlowy). Obie osoby dodają i weryfikują
+dokumenty.
+
+## Wymagania
+
+### A. Dokumenty pojazdu
+
+- **A1.** Pojazd ma listę dokumentów. Typy (`type`): `SALES_AGREEMENT` (umowa sprzedaży),
+  `INVOICE` (faktura), `COC` (świadectwo zgodności), `OC_POLICY` (polisa OC),
+  `REGISTRATION_POA` (pełnomocnictwo do rejestracji).
+- **A2.** Dokument ma: `type`, `number`, `issueDate`, opcjonalnie `expiryDate`, oraz `status`.
+- **A3.** Nowy dokument ma zawsze status `PENDING` (czeka na weryfikację). Klient nie podaje statusu
+  przy dodawaniu.
+- **A4.** Statusy (`status`): `PENDING`, `VERIFIED`, `REJECTED`. Weryfikacja kończy się
+  zweryfikowaniem albo odrzuceniem (np. zły VIN na fakturze).
+- **A5.** `issueDate` nie może być z przyszłości (błąd walidacji, 400).
+- **A6.** Na pojazd może być tylko jeden **aktywny** dokument danego typu. Aktywny = nieodrzucony
+  (`PENDING` lub `VERIFIED`). Odrzucone zostają w historii i nie blokują dodania nowego.
+  Dodanie dokumentu typu, który ma już aktywny dokument, zwraca **409**.
+- **A7.** Odrzucony dokument zostaje odrzucony. Poprawka od klienta to nowy dokument, a nie zmiana
+  statusu starego (decyzja Anny, obowiązuje do czasu ewentualnej innej decyzji dyrektora).
+  Zmiana `REJECTED` → cokolwiek zwraca **409**.
+- **A8.** Niedozwolona zmiana statusu zwraca **409**. Dozwolone przejścia: patrz założenie Z3.
+- **A9.** API (stałe):
+  - `GET /api/vehicles/{vehicleId}/documents`: lista dokumentów pojazdu (także odrzuconych).
+  - `POST /api/vehicles/{vehicleId}/documents`: dodanie dokumentu.
+  - `PUT /api/vehicles/{vehicleId}/documents/{documentId}/status`: zmiana statusu, body
+    `{"status": "VERIFIED"}`.
+
+### B. Rejestracja przez salon
+
+- **B1.** Przy pojeździe można zaznaczyć, że salon rejestruje auto za klienta (zaznacza Tomek po
+  ustaleniu z klientem).
+- **B2.** Domyślnie klient rejestruje sam (flaga wyłączona).
+- **B3.** `REGISTRATION_POA` jest wymagane do wydania tylko wtedy, gdy flaga jest włączona.
+
+### C. Gotowość do wydania
+
+- **C1.** `GET /api/vehicles/{vehicleId}/handover-readiness` zwraca `ready`,
+  `missingDocumentTypes` i `problems` (format z briefu).
+- **C2.** Wymagane typy: `SALES_AGREEMENT`, `INVOICE`, `COC`, `OC_POLICY`, a dodatkowo
+  `REGISTRATION_POA`, gdy salon rejestruje auto (B3).
+- **C3.** `missingDocumentTypes`: wymagane typy, dla których nie ma aktywnego dokumentu. Odrzucony
+  dokument liczy się jak brak dokumentu.
+- **C4.** `problems` z `reason`:
+  - `NOT_VERIFIED`: aktywny dokument wymaganego typu ma status `PENDING`.
+  - `EXPIRED`: aktywny dokument wymaganego typu ma `expiryDate` wcześniejszą niż data wydania.
+    Dokument ważny do dnia wydania włącznie jest w porządku (`expiryDate == plannedHandoverDate`
+    → OK).
+  - `NO_HANDOVER_DATE`: pojazd nie ma ustalonej daty wydania (`plannedHandoverDate` puste),
+    `documentType: null`.
+- **C5.** `ready == true` wtedy i tylko wtedy, gdy `missingDocumentTypes` i `problems` są puste.
+  Bez daty wydania auto nigdy nie jest gotowe.
+- **C6.** Na ekranie pojazdu Tomek od razu widzi: „gotowe do wydania” albo czego brakuje / co jest
+  nie tak.
+
+### D. Klienci
+
+- **D1.** Prosta lista klientów, CRUD pod `/api/customers` według konwencji modułu pojazdów
+  (lista, szczegóły, dodanie, edycja, usunięcie; backend i frontend).
+- **D2.** Pola: imię, nazwisko, e-mail, telefon, NIP (dla firm, opcjonalny).
+- **D3.** E-mail jest unikalny. Duplikat przy dodaniu lub edycji zwraca **409** (jak VIN w pojazdach).
+- **D4.** Bez powiązań klientów z pojazdami na tym etapie.
+
+## Założenia (do weryfikacji)
+
+- **Z1. Data wydania.** „Dzień wydania” to istniejące pole pojazdu `plannedHandoverDate`. Ważność
+  dokumentów sprawdzamy względem tej daty, nie względem dzisiaj.
+- **Z2. Brak daty wydania a `EXPIRED`.** Gdy pojazd nie ma `plannedHandoverDate`, zwracamy problem
+  `NO_HANDOVER_DATE` i nie sprawdzamy `EXPIRED` (nie ma względem czego). `NOT_VERIFIED` i braki
+  nadal raportujemy, żeby było widać pełny obraz.
+- **Z3. Przejścia statusów.** Dozwolone tylko `PENDING → VERIFIED` i `PENDING → REJECTED`.
+  Wszystko inne zwraca 409, w tym: `REJECTED → *` (A7), `VERIFIED → PENDING`,
+  `VERIFIED → REJECTED` oraz ustawienie tego samego statusu (np. `PENDING → PENDING`).
+  Status w body, który nie jest jedną z trzech wartości, to 400.
+- **Z4. Data ważności opcjonalna dla każdego typu.** Kontrakt mówi „opcjonalnie `expiryDate`”, więc
+  nie wymuszamy jej dla polisy ani pełnomocnictwa. Dokument bez `expiryDate` traktujemy jako
+  bezterminowy. Nie blokujemy też podania daty ważności dla umowy czy faktury.
+- **Z5. Spójność dat.** `expiryDate`, jeśli podana, nie może być wcześniejsza niż `issueDate`
+  (400). Data ważności może być w przeszłości (dokument się wtedy zapisze, a gotowość pokaże `EXPIRED`).
+- **Z6. Dokumenty niewymagane.** Dokument typu, który dla danego auta nie jest wymagany
+  (`REGISTRATION_POA`, gdy klient rejestruje sam), nie wpływa na gotowość: nie generuje
+  problemów `NOT_VERIFIED` ani `EXPIRED`.
+- **Z7. Jeden dokument, kilka problemów.** Aktywny dokument może mieć jednocześnie `NOT_VERIFIED`
+  i `EXPIRED`; zwracamy oba wpisy.
+- **Z8. Kolejność.** `missingDocumentTypes` i `problems` w kolejności typów z kontraktu
+  (`SALES_AGREEMENT`, `INVOICE`, `COC`, `OC_POLICY`, `REGISTRATION_POA`); `NO_HANDOVER_DATE`
+  na początku listy problemów.
+- **Z9. 404.** Nieistniejący pojazd → 404 na wszystkich endpointach dokumentów i gotowości.
+  Dokument, który nie istnieje albo należy do innego pojazdu → 404.
+- **Z10. Skan dokumentu.** W transkrypcji jest „wgranie skanu”, ale kontrakt API nie ma pliku.
+  Przechowujemy tylko metadane dokumentu (typ, numer, daty, status), bez plików.
+- **Z11. Flaga rejestracji.** Nowe pole pojazdu `registeredByDealer` (boolean, domyślnie `false`,
+  migracja ustawia `false` dla istniejących aut), edytowalne w formularzu pojazdu i zwracane w
+  `VehicleResponse`. Brak pola w żądaniu = `false`.
+- **Z12. „Dzisiaj”** dla walidacji `issueDate` to data serwera (strefa czasowa serwera); w kodzie przez
+  wstrzykiwany `Clock`, żeby dało się to testować.
+- **Z13. Klienci, walidacja.** Wymagane: imię, nazwisko, e-mail, telefon. NIP opcjonalny, jeśli podany:
+  dokładnie 10 cyfr (bez sprawdzania sumy kontrolnej). E-mail walidowany formatem, unikalność
+  bez rozróżniania wielkości liter (zapisujemy znormalizowany do małych liter). Telefon: dowolny
+  tekst do 20 znaków (cyfry, spacje, `+`, `-`), bez wymuszania formatu polskiego.
+- **Z14. Usuwanie i edycja dokumentów.** Kontrakt nie przewiduje edycji ani usuwania dokumentów, więc
+  ich nie robimy. Pomyłkę we wpisie poprawia się odrzuceniem i dodaniem nowego dokumentu.
+- **Z15. Usunięcie pojazdu z dokumentami.** Usunięcie pojazdu usuwa też jego dokumenty (kaskadowo).
+- **Z16. Uprawnienia.** Brak logowania i ról, tak jak w obecnej aplikacji; każdy użytkownik może
+  dodawać i weryfikować dokumenty.
+
+## Pytania do klienta
+
+1. **Poprawianie odrzuconych dokumentów (Anna vs Tomek).** Czy dyrektor potwierdził, że odrzucony
+   dokument zostaje odrzucony, a poprawka to nowy wpis? Na razie robimy wersję Anny (A7). Jeśli
+   decyzja się zmieni, trzeba dopuścić `REJECTED → VERIFIED`.
+2. Czy zweryfikowany dokument można później odrzucić (np. ktoś zauważył błąd po weryfikacji)? Na razie
+   nie (Z3).
+3. Czy data ważności ma być obowiązkowa dla polisy OC (i pełnomocnictwa)? Czy COC ma datę ważności?
+   (Z4)
+4. Czy przy dokumencie ma być przechowywany skan (plik)? Jeśli tak: jakie formaty, rozmiar, gdzie
+   trzymamy pliki? (Z10)
+5. Czy trzeba zapisywać, kto i kiedy zweryfikował lub odrzucił dokument, oraz powód odrzucenia
+   („przy kontroli widać, co było źle”)? Na razie zapisujemy tylko status.
+6. Czy `plannedHandoverDate` to właściwa „data wydania”, czy potrzebna jest osobna, potwierdzona data
+   wydania? (Z1)
+7. Co, jeśli auto zostało już wydane — czy blokujemy zmiany dokumentów lub oznaczamy auto jako wydane?
+8. Klienci: czy dla firmy potrzebna jest też nazwa firmy? Czy NIP ma być sprawdzany sumą kontrolną?
+   Czy telefon jest obowiązkowy? (Z13)
+9. Czy system ma blokować samą operację wydania auta, czy wystarczy informacja o gotowości?
+10. Czy numer dokumentu ma być unikalny (np. numer faktury w obrębie salonu)?
+
+## Poza zakresem
+
+- Powiadomienia SMS do klienta o gotowości auta (osobna integracja z bramką SMS, kolejny etap).
+- Powiązanie klientów z pojazdami (później, według Anny).
+- Przechowywanie skanów / plików dokumentów (Z10).
+- Edycja i usuwanie dokumentów (Z14).
+- Historia zmian statusów, audyt (kto/kiedy), powód odrzucenia (pytanie 5).
+- Logowanie, role i uprawnienia (Z16).
+- Rejestracja wydania auta i blokowanie wydania w systemie (pytania 7, 9).
+=====
+11:1. **`INTENT.md`**: wymagania wyciągnięte z transkrypcji, pytania do klienta, przyjęte założenia i rzeczy poza zakresem. Nikt nie odpowie na Twoje pytania w trakcie, więc przy wątpliwościach zapisz założenie i działaj dalej.
+34:| CRUD | `/api/customers` | Klienci, według konwencji modułu pojazdów |
+67:**Anna:** Papierologia. Każde auto przed wydaniem musi mieć komplet dokumentów, a dziś sprawdzamy to na wydrukowanej checkliście. W zeszłym miesiącu klient przyjechał po auto i okazało się, że nie ma COC, bo ktoś przeoczył.
+71:**Anna:** Umowa sprzedaży, faktura, świadectwo zgodności, czyli COC, i polisa OC. Bez tych czterech auto nie wyjeżdża. Do tego pełnomocnictwo do rejestracji, ale ono jest potrzebne tylko wtedy, kiedy to my rejestrujemy auto za klienta. Część klientów rejestruje sama.
+75:**Anna:** Tomek to wie, bo ustala to z klientem.
+81:**Anna:** Tomek może to zaznaczać przy aucie, jak ustali z klientem. Domyślnie klient rejestruje sam, więc pełnomocnictwo jest wymagane tylko przy autach, gdzie Tomek to zaznaczy.
+87:**Tomek:** I jak odrzucimy, a klient doniesie poprawioną wersję, to po prostu przestawiamy status na zweryfikowany, żeby nie robić bałaganu z nowymi wpisami.
+105:**Tomek:** I żeby klient dostawał SMS, jak auto jest gotowe.
+109:**Anna:** Klienci. Chcemy prostą listę klientów: imię, nazwisko, e-mail, telefon, a dla firm NIP. E-mail nie może się powtarzać. Na razie bez powiązań z autami, to później.
+111:**Anna:** Jeszcze jedno, Tomek, bo wcześniej to pominęłam. Odrzucony dokument zostaje odrzucony. Jak klient przyniesie poprawkę, wgrywamy nowy dokument. Inaczej przy kontroli nie widać, co było źle.
+diff --git a/frontend/angular.json b/frontend/angular.json
+index ef04f9b..4354800 100644
+--- a/frontend/angular.json
++++ b/frontend/angular.json
+@@ -2,7 +2,8 @@
+   "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+   "version": 1,
+   "cli": {
+-    "packageManager": "npm"
++    "packageManager": "npm",
++    "analytics": false
+   },
+   "newProjectRoot": "projects",
+   "projects": {
