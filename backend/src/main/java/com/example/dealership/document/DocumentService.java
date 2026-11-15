@@ -1,6 +1,10 @@
 package com.example.dealership.document;
 
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import com.example.dealership.error.ConflictException;
 import com.example.dealership.error.NotFoundException;
@@ -12,6 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 public class DocumentService {
+
+    // Only a pending document can be decided (INTENT A7, A8, Z3). Everything else, including
+    // setting the same status again, is a 409. A rejected document stays rejected: a correction
+    // is a new document.
+    private static final Map<DocumentStatus, Set<DocumentStatus>> ALLOWED_TRANSITIONS = new EnumMap<>(Map.of(
+            DocumentStatus.PENDING, EnumSet.of(DocumentStatus.VERIFIED, DocumentStatus.REJECTED)));
 
     private final DocumentRepository documentRepository;
     private final VehicleRepository vehicleRepository;
@@ -44,8 +54,13 @@ public class DocumentService {
     @Transactional
     public DocumentResponse changeStatus(Long vehicleId, Long id, DocumentStatusRequest request) {
         Document document = getDocument(vehicleId, id);
-        // TODO business rule: allowed status transitions (INTENT A7, A8, Z3) are written by hand.
-        document.setStatus(request.status());
+        DocumentStatus current = document.getStatus();
+        DocumentStatus target = request.status();
+        if (!ALLOWED_TRANSITIONS.getOrDefault(current, Set.of()).contains(target)) {
+            throw new ConflictException(
+                    "Document with id " + id + " cannot change status from " + current + " to " + target);
+        }
+        document.setStatus(target);
         return DocumentMapper.toResponse(documentRepository.save(document));
     }
 

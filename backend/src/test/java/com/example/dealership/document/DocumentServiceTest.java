@@ -17,6 +17,8 @@ import com.example.dealership.vehicle.VehicleRepository;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -107,6 +109,75 @@ class DocumentServiceTest {
         assertThat(response.status()).isEqualTo(DocumentStatus.VERIFIED);
         assertThat(document.getStatus()).isEqualTo(DocumentStatus.VERIFIED);
         verify(documentRepository).save(document);
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({ "PENDING, VERIFIED", "PENDING, REJECTED" })
+    void changeStatusAllowsDecidingPendingDocument(DocumentStatus from, DocumentStatus to) {
+        Document document = document(NUMBER, from);
+        when(vehicleRepository.existsById(1L)).thenReturn(true);
+        when(documentRepository.findByIdAndVehicleId(5L, 1L)).thenReturn(Optional.of(document));
+        when(documentRepository.save(document)).thenReturn(document);
+
+        DocumentResponse response = documentService.changeStatus(1L, 5L, new DocumentStatusRequest(to));
+
+        assertThat(response.status()).isEqualTo(to);
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "PENDING, PENDING",
+            "VERIFIED, PENDING",
+            "VERIFIED, VERIFIED",
+            "VERIFIED, REJECTED",
+            "REJECTED, PENDING",
+            "REJECTED, VERIFIED",
+            "REJECTED, REJECTED" })
+    void changeStatusThrowsConflictWhenTransitionIsNotAllowed(DocumentStatus from, DocumentStatus to) {
+        Document document = document(NUMBER, from);
+        when(vehicleRepository.existsById(1L)).thenReturn(true);
+        when(documentRepository.findByIdAndVehicleId(5L, 1L)).thenReturn(Optional.of(document));
+
+        assertThatThrownBy(() -> documentService.changeStatus(1L, 5L, new DocumentStatusRequest(to)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Document with id 5 cannot change status from " + from + " to " + to);
+        assertThat(document.getStatus()).isEqualTo(from);
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    void changeStatusThrowsConflictWhenRejectedDocumentIsVerified() {
+        // INTENT A7: a correction from the customer is a new document, not a re-verification.
+        Document document = document(NUMBER, DocumentStatus.REJECTED);
+        when(vehicleRepository.existsById(1L)).thenReturn(true);
+        when(documentRepository.findByIdAndVehicleId(5L, 1L)).thenReturn(Optional.of(document));
+
+        assertThatThrownBy(() -> documentService.changeStatus(1L, 5L, new DocumentStatusRequest(DocumentStatus.VERIFIED)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Document with id 5 cannot change status from REJECTED to VERIFIED");
+    }
+
+    @Test
+    void changeStatusThrowsConflictWhenVerifiedDocumentIsRejected() {
+        // INTENT Z3 / client question 2: a verified document is final for now.
+        Document document = document(NUMBER, DocumentStatus.VERIFIED);
+        when(vehicleRepository.existsById(1L)).thenReturn(true);
+        when(documentRepository.findByIdAndVehicleId(5L, 1L)).thenReturn(Optional.of(document));
+
+        assertThatThrownBy(() -> documentService.changeStatus(1L, 5L, new DocumentStatusRequest(DocumentStatus.REJECTED)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Document with id 5 cannot change status from VERIFIED to REJECTED");
+    }
+
+    @Test
+    void changeStatusThrowsConflictWhenStatusIsUnchanged() {
+        Document document = document(NUMBER, DocumentStatus.PENDING);
+        when(vehicleRepository.existsById(1L)).thenReturn(true);
+        when(documentRepository.findByIdAndVehicleId(5L, 1L)).thenReturn(Optional.of(document));
+
+        assertThatThrownBy(() -> documentService.changeStatus(1L, 5L, new DocumentStatusRequest(DocumentStatus.PENDING)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Document with id 5 cannot change status from PENDING to PENDING");
     }
 
     @Test
