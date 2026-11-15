@@ -1,0 +1,4 @@
+INSERT INTO document (vehicle_id, type, number, issue_date, expiry_date, status) VALUES
+    ((SELECT id FROM vehicle WHERE vin = 'WVWZZZ1KZAW000001'), 'SALES_AGREEMENT', 'UM/2026/0412', DATE '2026-10-02', NULL, 'VERIFIED'),
+    ((SELECT id FROM vehicle WHERE vin = 'WVWZZZ1KZAW000001'), 'INVOICE', 'FV/2026/10/118', DATE '2026-10-05', NULL, 'PENDING'),
+    ((SELECT id FROM vehicle WHERE vin = 'WVWZZZ1KZAW000001'), 'OC_POLICY', 'OC-7781-2026', DATE '2026-10-20', DATE '2027-10-19', 'VERIFIED');

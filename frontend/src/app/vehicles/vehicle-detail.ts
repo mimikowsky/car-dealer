@@ -1,11 +1,12 @@
 import { Component, inject, input, numberAttribute } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DocumentSection } from '../documents/document-section';
 import { loadErrorMessage } from '../shared/problem-detail';
 import { FUEL_TYPE_LABELS, VehicleApi } from './vehicle-api';
 
 @Component({
   selector: 'app-vehicle-detail',
-  imports: [RouterLink],
+  imports: [DocumentSection, RouterLink],
   templateUrl: './vehicle-detail.html',
 })
 export class VehicleDetail {
